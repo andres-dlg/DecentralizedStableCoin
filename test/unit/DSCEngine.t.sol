@@ -7,6 +7,7 @@ import {DecentralizedStableCoin} from "../../src/DecentralizedStableCoin.sol";
 import {DSCEngine} from "../../src/DSCEngine.sol";
 import {HelperConfig} from "../../script/HelperConfig.s.sol";
 import {ERC20Mock} from "../mocks/ERC20Mock.sol";
+import {MockV3Aggregator} from "../mocks/MockV3Aggregator.sol"; 
 
 contract DSCEngineTest is Test {
     DeployDSC deployer;
@@ -17,6 +18,7 @@ contract DSCEngineTest is Test {
     address btcUsdPriceFeed;
 
     address weth;
+    uint256 amountToMint = 100 ether;
 
     uint256 constant AMOUNT_COLLATERAL = 10 ether;
     uint256 constant STARTING_ERC20_BALANCE = 10 ether;
@@ -107,5 +109,18 @@ contract DSCEngineTest is Test {
         );
         assertEq(expectedTotalDscMinted, totalDscMinted);
         assertEq(AMOUNT_COLLATERAL, expectedDepositAmount);
+    }
+
+    function testRevertsIfMintedDscBreaksHealthFactor() public {
+        (, int256 price,,,) = MockV3Aggregator(ethUsdPriceFeed).latestRoundData();
+        amountToMint = (AMOUNT_COLLATERAL * (uint256(price) * dscEngine.getAdditionalFeedPrecision())) / dscEngine.getPrecision();
+        vm.startPrank(USER);
+        ERC20Mock(weth).approve(address(dscEngine), AMOUNT_COLLATERAL);
+
+        uint256 expectedHealthFactor =
+            dscEngine.calculateHealthFactor(amountToMint, dscEngine.getUsdValue(weth, AMOUNT_COLLATERAL));
+        vm.expectRevert(abi.encodeWithSelector(DSCEngine.DSCEngine__BreaksHealthFactor.selector, expectedHealthFactor));
+        dscEngine.depositCollateralAndMintDsc(weth, AMOUNT_COLLATERAL, amountToMint);
+        vm.stopPrank();
     }
 }
